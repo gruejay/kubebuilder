@@ -46,7 +46,7 @@ func (v *Views) CreateWelcomeView() tview.Primitive {
 	return flex
 }
 
-func (v *Views) CreateExplorerView(namespace string) *tview.List {
+func (v *Views) CreateExplorerView(namespace string, resourceType string) *tview.List {
 	list := tview.NewList()
 	list.SetMainTextColor(tcell.ColorWhite).
 		SetSelectedTextColor(tcell.ColorBlack).
@@ -57,17 +57,17 @@ func (v *Views) CreateExplorerView(namespace string) *tview.List {
 		SetBorderColor(tcell.ColorLightBlue).
 		SetTitleColor(tcell.ColorWhite)
 
-	title := fmt.Sprintf(" Explorer Mode - Namespace: %s (Press 'n' to change) ", namespace)
+	title := fmt.Sprintf(" Explorer Mode - Namespace: %s | Resource: %s (Press 'n'/'r' to change) ", namespace, resourceType)
 	list.SetTitle(title)
 	return list
 }
 
-func (v *Views) UpdateExplorerTitle(list *tview.List, namespace string) {
-	title := fmt.Sprintf(" Explorer Mode - Namespace: %s (Press 'n' to change) ", namespace)
+func (v *Views) UpdateExplorerTitle(list *tview.List, namespace string, resourceType string) {
+	title := fmt.Sprintf(" Explorer Mode - Namespace: %s | Resource: %s (Press 'n'/'r' to change) ", namespace, resourceType)
 	list.SetTitle(title)
 }
 
-func (v *Views) CreateNamespaceSelector(namespaces []string, pages *tview.Pages, onSelect func(string)) {
+func (v *Views) createGenericSelector(items []string, title string, pageName string, pages *tview.Pages, onSelect func(string)) {
 	var filteredMatches []fuzzy.Match
 	var selectedIndex int
 
@@ -92,13 +92,13 @@ func (v *Views) CreateNamespaceSelector(namespaces []string, pages *tview.Pages,
 		selectedIndex = 0
 
 		if text == "" {
-			filteredMatches = make([]fuzzy.Match, len(namespaces))
-			for i, ns := range namespaces {
-				filteredMatches[i] = fuzzy.Match{Str: ns}
-				matchList.AddItem(ns, "", 0, nil)
+			filteredMatches = make([]fuzzy.Match, len(items))
+			for i, item := range items {
+				filteredMatches[i] = fuzzy.Match{Str: item}
+				matchList.AddItem(item, "", 0, nil)
 			}
 		} else {
-			filteredMatches = fuzzy.Find(text, namespaces)
+			filteredMatches = fuzzy.Find(text, items)
 			for _, match := range filteredMatches {
 				matchList.AddItem(match.Str, "", 0, nil)
 			}
@@ -109,7 +109,7 @@ func (v *Views) CreateNamespaceSelector(namespaces []string, pages *tview.Pages,
 		}
 	}
 
-	// Initialize with all namespaces
+	// Initialize with all items
 	updateMatches("")
 
 	// Handle input changes for live filtering
@@ -134,14 +134,14 @@ func (v *Views) CreateNamespaceSelector(namespaces []string, pages *tview.Pages,
 			return nil
 		case tcell.KeyEnter: // Select current match
 			if len(filteredMatches) > 0 {
-				selectedNs := filteredMatches[selectedIndex].Str
-				onSelect(selectedNs)
-				pages.RemovePage("namespace-selector")
+				selectedItem := filteredMatches[selectedIndex].Str
+				onSelect(selectedItem)
+				pages.RemovePage(pageName)
 				pages.SwitchToPage("explorer")
 			}
 			return nil
 		case tcell.KeyEscape: // Cancel
-			pages.RemovePage("namespace-selector")
+			pages.RemovePage(pageName)
 			pages.SwitchToPage("explorer")
 			return nil
 		}
@@ -155,12 +155,20 @@ func (v *Views) CreateNamespaceSelector(namespaces []string, pages *tview.Pages,
 		AddItem(matchList, 0, 1, false)
 
 	flex.SetBorder(true).
-		SetTitle(" Namespace Selector (Ctrl+J/K to navigate, Enter to select, Esc to cancel) ").
+		SetTitle(title).
 		SetBorderColor(tcell.ColorLightBlue).
 		SetTitleColor(tcell.ColorWhite).
 		SetBackgroundColor(tcell.ColorBlack)
 
-	pages.AddPage("namespace-selector", flex, true, false)
-	pages.SwitchToPage("namespace-selector")
+	pages.AddPage(pageName, flex, true, false)
+	pages.SwitchToPage(pageName)
 	v.app.SetFocus(inputField)
+}
+
+func (v *Views) CreateResourceSelector(pages *tview.Pages, onSelect func(string)) {
+	resourceTypes := []string{"all", "pods", "services", "deployments", "configmaps", "secrets", "ingresses", "daemonsets", "statefulsets", "jobs", "cronjobs"}
+	v.createGenericSelector(resourceTypes, " Resource Type Selector (Ctrl+J/K to navigate, Enter to select, Esc to cancel) ", "resource-selector", pages, onSelect)
+}
+func (v *Views) CreateNamespaceSelector(namespaces []string, pages *tview.Pages, onSelect func(string)) {
+	v.createGenericSelector(namespaces, " Namespace Selector (Ctrl+J/K to navigate, Enter to select, Esc to cancel) ", "namespace-selector", pages, onSelect)
 }

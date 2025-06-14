@@ -11,14 +11,15 @@ import (
 )
 
 type App struct {
-	app              *tview.Application
-	kubeClient       *kubernetes.Client
-	views            *ui.Views
-	currentMode      string
-	currentNamespace string
-	pages            *tview.Pages
-	namespaces       []string
-	explorerList     *tview.List
+	app               *tview.Application
+	kubeClient        *kubernetes.Client
+	views             *ui.Views
+	currentMode       string
+	currentNamespace  string
+	currentResourceType string
+	pages             *tview.Pages
+	namespaces        []string
+	explorerList      *tview.List
 }
 
 func New() *App {
@@ -38,10 +39,11 @@ func New() *App {
 	tview.Styles.ContrastSecondaryTextColor = tcell.ColorLightGray
 
 	return &App{
-		app:         app,
-		views:       ui.NewViews(app),
-		currentMode: "welcome",
-		pages:       tview.NewPages(),
+		app:                 app,
+		views:               ui.NewViews(app),
+		currentMode:         "welcome",
+		currentResourceType: "all",
+		pages:               tview.NewPages(),
 	}
 }
 
@@ -73,7 +75,7 @@ func (a *App) setupPages() {
 
 	// Create pages
 	a.pages.AddPage("welcome", a.views.CreateWelcomeView(), true, true)
-	a.explorerList = a.views.CreateExplorerView(a.currentNamespace)
+	a.explorerList = a.views.CreateExplorerView(a.currentNamespace, a.currentResourceType)
 	a.pages.AddPage("explorer", a.explorerList, true, false)
 
 	// Load initial resources if connected
@@ -103,6 +105,11 @@ func (a *App) setupKeyBindings() {
 				a.showNamespaceSelector()
 			}
 			return nil
+		case 'r':
+			if a.currentMode == "explorer" {
+				a.showResourceSelector()
+			}
+			return nil
 		}
 		return event
 	})
@@ -115,7 +122,15 @@ func (a *App) showNamespaceSelector() {
 
 	a.views.CreateNamespaceSelector(a.namespaces, a.pages, func(selectedNs string) {
 		a.currentNamespace = selectedNs
-		a.views.UpdateExplorerTitle(a.explorerList, a.currentNamespace)
+		a.views.UpdateExplorerTitle(a.explorerList, a.currentNamespace, a.currentResourceType)
+		go a.loadResources()
+	})
+}
+
+func (a *App) showResourceSelector() {
+	a.views.CreateResourceSelector(a.pages, func(selectedResourceType string) {
+		a.currentResourceType = selectedResourceType
+		a.views.UpdateExplorerTitle(a.explorerList, a.currentNamespace, a.currentResourceType)
 		go a.loadResources()
 	})
 }
@@ -131,12 +146,32 @@ func (a *App) loadResources() {
 	// Clear the list
 	a.explorerList.Clear()
 
-	// Get pods in current namespace
+	// Load resources based on current resource type filter
+	switch a.currentResourceType {
+	case "all":
+		a.loadAllResources()
+	case "pods":
+		a.loadPods()
+	case "services":
+		a.loadServices()
+	default:
+		a.explorerList.AddItem(fmt.Sprintf("Resource type '%s' not yet implemented", a.currentResourceType), "", 0, nil)
+	}
+
+	a.app.Draw()
+}
+
+func (a *App) loadAllResources() {
+	a.loadPods()
+	a.loadServices()
+}
+
+func (a *App) loadPods() {
 	pods, err := a.kubeClient.GetPodsInNamespace(a.currentNamespace)
 	if err != nil {
 		a.explorerList.AddItem(fmt.Sprintf("Error loading pods: %v", err), "", 0, nil)
 	} else {
-		if len(pods) == 0 {
+		if len(pods) == 0 && a.currentResourceType == "pods" {
 			a.explorerList.AddItem("No pods found in this namespace", "", 0, nil)
 		} else {
 			for _, pod := range pods {
@@ -144,16 +179,21 @@ func (a *App) loadResources() {
 			}
 		}
 	}
+}
 
-	// Get services in current namespace
+func (a *App) loadServices() {
 	services, err := a.kubeClient.GetServicesInNamespace(a.currentNamespace)
-	if err == nil && len(services) > 0 {
-		for _, svc := range services {
-			a.explorerList.AddItem(fmt.Sprintf("%s: %s", svc.Type, svc.Name), svc.Name, 0, nil)
+	if err != nil {
+		a.explorerList.AddItem(fmt.Sprintf("Error loading services: %v", err), "", 0, nil)
+	} else {
+		if len(services) == 0 && a.currentResourceType == "services" {
+			a.explorerList.AddItem("No services found in this namespace", "", 0, nil)
+		} else {
+			for _, svc := range services {
+				a.explorerList.AddItem(fmt.Sprintf("%s: %s", svc.Type, svc.Name), svc.Name, 0, nil)
+			}
 		}
 	}
-
-	a.app.Draw()
 }
 
 func (a *App) Run() error {
