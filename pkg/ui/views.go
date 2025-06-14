@@ -120,13 +120,13 @@ func (v *Views) createGenericSelector(items []string, title string, pageName str
 	// Handle key events for navigation and selection
 	inputField.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
-		case tcell.KeyCtrlJ: // Navigate down
+		case tcell.KeyCtrlJ, tcell.KeyTab: // Navigate down
 			if len(filteredMatches) > 0 {
 				selectedIndex = (selectedIndex + 1) % len(filteredMatches)
 				matchList.SetCurrentItem(selectedIndex)
 			}
 			return nil
-		case tcell.KeyCtrlK: // Navigate up
+		case tcell.KeyCtrlK, tcell.KeyBacktab: // Navigate up
 			if len(filteredMatches) > 0 {
 				selectedIndex = (selectedIndex - 1 + len(filteredMatches)) % len(filteredMatches)
 				matchList.SetCurrentItem(selectedIndex)

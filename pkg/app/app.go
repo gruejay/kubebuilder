@@ -11,15 +11,15 @@ import (
 )
 
 type App struct {
-	app               *tview.Application
-	kubeClient        *kubernetes.Client
-	views             *ui.Views
-	currentMode       string
-	currentNamespace  string
+	app                 *tview.Application
+	kubeClient          *kubernetes.Client
+	views               *ui.Views
+	currentMode         string
+	currentNamespace    string
 	currentResourceType string
-	pages             *tview.Pages
-	namespaces        []string
-	explorerList      *tview.List
+	pages               *tview.Pages
+	namespaces          []string
+	explorerList        *tview.List
 }
 
 func New() *App {
@@ -86,6 +86,12 @@ func (a *App) setupPages() {
 
 func (a *App) setupKeyBindings() {
 	a.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		focused := a.app.GetFocus()
+		switch focused.(type) {
+		case *tview.InputField:
+			return event // Let inputs handle their own input
+		}
+
 		if event.Key() == tcell.KeyEsc && a.currentMode != "welcome" {
 			a.currentMode = "welcome"
 			a.pages.SwitchToPage("welcome")
@@ -202,4 +208,3 @@ func (a *App) Run() error {
 
 	return a.app.SetRoot(a.pages, true).SetFocus(a.pages).Run()
 }
-
