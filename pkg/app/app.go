@@ -23,7 +23,7 @@ type App struct {
 
 func New() *App {
 	app := tview.NewApplication()
-	
+
 	// Set VSCode dark theme colors
 	tview.Styles.PrimitiveBackgroundColor = tcell.ColorBlack
 	tview.Styles.ContrastBackgroundColor = tcell.ColorBlack
@@ -36,7 +36,7 @@ func New() *App {
 	tview.Styles.TertiaryTextColor = tcell.ColorDarkGray
 	tview.Styles.InverseTextColor = tcell.ColorBlack
 	tview.Styles.ContrastSecondaryTextColor = tcell.ColorLightGray
-	
+
 	return &App{
 		app:         app,
 		views:       ui.NewViews(app),
@@ -70,7 +70,7 @@ func (a *App) Initialize() error {
 func (a *App) setupPages() {
 	// Set pages background color
 	a.pages.SetBackgroundColor(tcell.ColorBlack)
-	
+
 	// Create pages
 	a.pages.AddPage("welcome", a.views.CreateWelcomeView(), true, true)
 	a.explorerList = a.views.CreateExplorerView(a.currentNamespace)
@@ -84,6 +84,10 @@ func (a *App) setupPages() {
 
 func (a *App) setupKeyBindings() {
 	a.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyEsc && a.currentMode != "welcome" {
+			a.currentMode = "welcome"
+			a.pages.SwitchToPage("welcome")
+		}
 		switch event.Rune() {
 		case 'q':
 			a.app.Stop()
@@ -97,12 +101,6 @@ func (a *App) setupKeyBindings() {
 		case 'n':
 			if a.currentMode == "explorer" {
 				a.showNamespaceSelector()
-			}
-			return nil
-		case 27: // ESC key
-			if a.currentMode != "welcome" {
-				a.currentMode = "welcome"
-				a.pages.SwitchToPage("welcome")
 			}
 			return nil
 		}
@@ -161,6 +159,7 @@ func (a *App) loadResources() {
 func (a *App) Run() error {
 	a.setupPages()
 	a.setupKeyBindings()
-	
+
 	return a.app.SetRoot(a.pages, true).SetFocus(a.pages).Run()
 }
+
