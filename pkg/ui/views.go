@@ -17,20 +17,33 @@ func NewViews(app *tview.Application) *Views {
 }
 
 func (v *Views) CreateWelcomeView() tview.Primitive {
+	welcomeMessage := "Welcome to kubeguide\nPress 'q' to quit\nPress 'e' for explorer"
+	// Create a text view with large, centered text
 	textView := tview.NewTextView().
+		SetChangedFunc(func() { v.app.Draw() }).
 		SetTextAlign(tview.AlignCenter).
-		SetText("Welcome to kubeguide\n\nPress 'e' for Explorer mode\nPress 'q' to quit").
-		SetTextColor(tcell.ColorWhite).
-		SetBackgroundColor(tcell.ColorBlack)
+		SetTextColor(tcell.ColorWhite)
+	fmt.Fprintf(textView, "%s", welcomeMessage)
 
-	return tview.NewFlex().
+	// Add a border to make it more visible
+	textView.SetBorder(true).
+		SetBorderColor(tcell.ColorLightBlue).
+		SetTitle(" Welcome ").
+		SetTitleColor(tcell.ColorWhite)
+
+	// Create a flex layout to center the text view
+	flex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(nil, 0, 1, false).
 		AddItem(tview.NewFlex().
+			SetDirection(tview.FlexColumn).
 			AddItem(nil, 0, 1, false).
-			AddItem(textView, 0, 3, true).
-			AddItem(nil, 0, 1, false), 0, 1, true).
+			AddItem(textView, 40, 1, true).
+			AddItem(nil, 0, 1, false),
+			10, 1, true).
 		AddItem(nil, 0, 1, false)
+
+	return flex
 }
 
 func (v *Views) CreateExplorerView(namespace string) *tview.List {
@@ -39,11 +52,11 @@ func (v *Views) CreateExplorerView(namespace string) *tview.List {
 		SetSelectedTextColor(tcell.ColorBlack).
 		SetSelectedBackgroundColor(tcell.ColorLightBlue).
 		SetBackgroundColor(tcell.ColorBlack)
-	
+
 	list.SetBorder(true).
 		SetBorderColor(tcell.ColorLightBlue).
 		SetTitleColor(tcell.ColorWhite)
-	
+
 	title := fmt.Sprintf(" Explorer Mode - Namespace: %s (Press 'n' to change) ", namespace)
 	list.SetTitle(title)
 	return list
@@ -77,7 +90,7 @@ func (v *Views) CreateNamespaceSelector(namespaces []string, pages *tview.Pages,
 	updateMatches := func(text string) {
 		matchList.Clear()
 		selectedIndex = 0
-		
+
 		if text == "" {
 			filteredMatches = make([]fuzzy.Match, len(namespaces))
 			for i, ns := range namespaces {
@@ -90,7 +103,7 @@ func (v *Views) CreateNamespaceSelector(namespaces []string, pages *tview.Pages,
 				matchList.AddItem(match.Str, "", 0, nil)
 			}
 		}
-		
+
 		if len(filteredMatches) > 0 {
 			matchList.SetCurrentItem(0)
 		}
