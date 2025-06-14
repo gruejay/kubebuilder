@@ -172,3 +172,16 @@ func (v *Views) CreateResourceSelector(pages *tview.Pages, onSelect func(string)
 func (v *Views) CreateNamespaceSelector(namespaces []string, pages *tview.Pages, onSelect func(string)) {
 	v.createGenericSelector(namespaces, " Namespace Selector (Ctrl+J/K to navigate, Enter to select, Esc to cancel) ", "namespace-selector", pages, onSelect)
 }
+
+func (v *Views) CreateResourceDetailsView(resourceName string, resourceType string, yamlContent string) tview.Primitive {
+	textView := tview.NewTextView().
+		SetChangedFunc(func() { v.app.Draw() }).
+		SetTextColor(tcell.ColorWhite)
+	fmt.Fprintf(textView, "%s", yamlContent)
+	textView.SetBorder(true).
+		SetBorderColor(tcell.ColorLightBlue).
+		SetTitle(fmt.Sprintf(" %s: %s (Press Esc to return) ", resourceType, resourceName)).
+		SetTitleColor(tcell.ColorWhite)
+
+	return textView
+}

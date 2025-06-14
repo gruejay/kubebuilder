@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -82,6 +83,11 @@ func (a *App) setupPages() {
 	if a.kubeClient != nil {
 		go a.loadResources()
 	}
+
+	// Set up explorer list selection handler
+	a.explorerList.SetSelectedFunc(func(index int, mainText string, secondaryText string, shortcut rune) {
+		a.handleResourceSelection(mainText, secondaryText)
+	})
 }
 
 func (a *App) setupKeyBindings() {
@@ -92,9 +98,18 @@ func (a *App) setupKeyBindings() {
 			return event // Let inputs handle their own input
 		}
 
-		if event.Key() == tcell.KeyEsc && a.currentMode != "welcome" {
-			a.currentMode = "welcome"
-			a.pages.SwitchToPage("welcome")
+		if event.Key() == tcell.KeyEsc {
+			// Check if we're viewing resource details
+			if a.pages.HasPage("resource-details") {
+				a.pages.RemovePage("resource-details")
+				a.pages.SwitchToPage("explorer")
+				return nil
+			}
+			// Otherwise, return to welcome screen
+			if a.currentMode != "welcome" {
+				a.currentMode = "welcome"
+				a.pages.SwitchToPage("welcome")
+			}
 		}
 		switch event.Rune() {
 		case 'q':
@@ -207,4 +222,32 @@ func (a *App) Run() error {
 	a.setupKeyBindings()
 
 	return a.app.SetRoot(a.pages, true).SetFocus(a.pages).Run()
+}
+
+func (a *App) handleResourceSelection(mainText string, resourceName string) {
+	if a.kubeClient == nil || resourceName == "" {
+		return
+	}
+
+	// Parse resource type from mainText (format: "ResourceType: ResourceName (Status)")
+	parts := strings.Split(mainText, ":")
+	if len(parts) < 2 {
+		return
+	}
+	resourceType := strings.TrimSpace(parts[0])
+
+	// Fetch resource details
+	go func() {
+		yamlContent, err := a.kubeClient.GetResourceDetails(resourceType, resourceName, a.currentNamespace)
+		if err != nil {
+			yamlContent = fmt.Sprintf("Error fetching resource details: %v", err)
+		}
+
+		// Create and show the details view
+		a.app.QueueUpdateDraw(func() {
+			detailsView := a.views.CreateResourceDetailsView(resourceName, resourceType, yamlContent)
+			a.pages.AddPage("resource-details", detailsView, true, true)
+			a.pages.SwitchToPage("resource-details")
+		})
+	}()
 }

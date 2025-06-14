@@ -4,14 +4,19 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/yaml"
 )
 
 type Client struct {
-	clientset *kubernetes.Clientset
+	clientset     *kubernetes.Clientset
+	dynamicClient dynamic.Interface
 }
 
 type Resource struct {
@@ -21,12 +26,15 @@ type Resource struct {
 }
 
 func NewClient() (*Client, string, error) {
-	clientset, currentNamespace, err := loadKubeConfig()
+	clientset, dynamicClient, currentNamespace, err := loadKubeConfig()
 	if err != nil {
 		return nil, "", err
 	}
 
-	return &Client{clientset: clientset}, currentNamespace, nil
+	return &Client{
+		clientset:     clientset,
+		dynamicClient: dynamicClient,
+	}, currentNamespace, nil
 }
 
 func (c *Client) GetNamespaces() ([]string, error) {
@@ -82,7 +90,7 @@ func (c *Client) GetServicesInNamespace(namespace string) ([]Resource, error) {
 	return resources, nil
 }
 
-func loadKubeConfig() (*kubernetes.Clientset, string, error) {
+func loadKubeConfig() (*kubernetes.Clientset, dynamic.Interface, string, error) {
 	var kubeconfig string
 	
 	if kubeconfigEnv := os.Getenv("KUBECONFIG"); kubeconfigEnv != "" {
@@ -90,14 +98,14 @@ func loadKubeConfig() (*kubernetes.Clientset, string, error) {
 	} else {
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
-			return nil, "", err
+			return nil, nil, "", err
 		}
 		kubeconfig = filepath.Join(homeDir, ".kube", "config")
 	}
 
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 
 	// Get current namespace from kubeconfig
@@ -105,7 +113,7 @@ func loadKubeConfig() (*kubernetes.Clientset, string, error) {
 	configAccess.GlobalFile = kubeconfig
 	rawConfig, err := configAccess.GetStartingConfig()
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 
 	currentContext := rawConfig.CurrentContext
@@ -118,8 +126,63 @@ func loadKubeConfig() (*kubernetes.Clientset, string, error) {
 
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 
-	return clientset, currentNamespace, nil
+	dynamicClient, err := dynamic.NewForConfig(config)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	return clientset, dynamicClient, currentNamespace, nil
+}
+
+func (c *Client) GetResourceDetails(resourceType string, resourceName string, namespace string) (string, error) {
+	ctx := context.Background()
+	
+	gvr, err := c.getGVRForResourceType(resourceType)
+	if err != nil {
+		return "", err
+	}
+	
+	resource, err := c.dynamicClient.Resource(gvr).Namespace(namespace).Get(ctx, resourceName, metav1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+	
+	yamlData, err := yaml.Marshal(resource.Object)
+	if err != nil {
+		return "", err
+	}
+	
+	return string(yamlData), nil
+}
+
+func (c *Client) getGVRForResourceType(resourceType string) (schema.GroupVersionResource, error) {
+	resourceTypeLower := strings.ToLower(resourceType)
+	
+	switch resourceTypeLower {
+	case "pod":
+		return schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}, nil
+	case "service":
+		return schema.GroupVersionResource{Group: "", Version: "v1", Resource: "services"}, nil
+	case "deployment":
+		return schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, nil
+	case "configmap":
+		return schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}, nil
+	case "secret":
+		return schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}, nil
+	case "ingress":
+		return schema.GroupVersionResource{Group: "networking.k8s.io", Version: "v1", Resource: "ingresses"}, nil
+	case "daemonset":
+		return schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "daemonsets"}, nil
+	case "statefulset":
+		return schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "statefulsets"}, nil
+	case "job":
+		return schema.GroupVersionResource{Group: "batch", Version: "v1", Resource: "jobs"}, nil
+	case "cronjob":
+		return schema.GroupVersionResource{Group: "batch", Version: "v1", Resource: "cronjobs"}, nil
+	default:
+		return schema.GroupVersionResource{}, nil
+	}
 }
