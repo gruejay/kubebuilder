@@ -1,19 +1,30 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/yaml"
 
 	"kubeguide/pkg/kubernetes"
 	"kubeguide/pkg/ui"
 )
 
+type Resource struct {
+	Type   string
+	Name   string
+	Status string
+}
+
 type App struct {
 	app                 *tview.Application
-	kubeClient          *kubernetes.Client
+	kubeClient          *kubernetes.UnifiedClient
 	views               *ui.Views
 	currentMode         string
 	currentNamespace    string
@@ -50,18 +61,18 @@ func New() *App {
 
 func (a *App) Initialize() error {
 	// Try to load Kubernetes config
-	kubeClient, currentNamespace, err := kubernetes.NewClient()
+	kubeClient, err := kubernetes.NewUnifiedClient()
 	if err != nil {
 		fmt.Printf("Warning: Unable to load kubeconfig: %v\n", err)
 		a.currentNamespace = "default"
 	} else {
 		a.kubeClient = kubeClient
-		a.currentNamespace = currentNamespace
+		a.currentNamespace = "default" // Default namespace
 	}
 
 	// Load namespaces
 	if a.kubeClient != nil {
-		namespaces, err := a.kubeClient.GetNamespaces()
+		namespaces, err := a.getNamespaces()
 		if err == nil {
 			a.namespaces = namespaces
 		}
@@ -171,10 +182,8 @@ func (a *App) loadResources() {
 	switch a.currentResourceType {
 	case "all":
 		a.loadAllResources()
-	case "pods":
-		a.loadPods()
-	case "services":
-		a.loadServices()
+	case "pods", "services", "deployments", "configmaps", "secrets":
+		a.loadResourcesByType(a.currentResourceType)
 	default:
 		a.explorerList.AddItem(fmt.Sprintf("Resource type '%s' not yet implemented", a.currentResourceType), "", 0, nil)
 	}
@@ -183,38 +192,34 @@ func (a *App) loadResources() {
 }
 
 func (a *App) loadAllResources() {
-	a.loadPods()
-	a.loadServices()
+	resourceTypes := []string{"pods", "services", "deployments", "configmaps", "secrets"}
+	for _, resourceType := range resourceTypes {
+		a.loadResourcesByType(resourceType)
+	}
+}
+
+func (a *App) loadResourcesByType(resourceType string) {
+	resources, err := a.getResourcesInNamespace(resourceType, a.currentNamespace)
+	if err != nil {
+		a.explorerList.AddItem(fmt.Sprintf("Error loading %s: %v", resourceType, err), "", 0, nil)
+	} else {
+		if len(resources) == 0 && a.currentResourceType == resourceType {
+			a.explorerList.AddItem(fmt.Sprintf("No %s found in this namespace", resourceType), "", 0, nil)
+		} else {
+			for _, resource := range resources {
+				displayText := fmt.Sprintf("%s: %s (%s)", resource.Type, resource.Name, resource.Status)
+				a.explorerList.AddItem(displayText, resource.Name, 0, nil)
+			}
+		}
+	}
 }
 
 func (a *App) loadPods() {
-	pods, err := a.kubeClient.GetPodsInNamespace(a.currentNamespace)
-	if err != nil {
-		a.explorerList.AddItem(fmt.Sprintf("Error loading pods: %v", err), "", 0, nil)
-	} else {
-		if len(pods) == 0 && a.currentResourceType == "pods" {
-			a.explorerList.AddItem("No pods found in this namespace", "", 0, nil)
-		} else {
-			for _, pod := range pods {
-				a.explorerList.AddItem(fmt.Sprintf("%s: %s (%s)", pod.Type, pod.Name, pod.Status), pod.Name, 0, nil)
-			}
-		}
-	}
+	a.loadResourcesByType("pods")
 }
 
 func (a *App) loadServices() {
-	services, err := a.kubeClient.GetServicesInNamespace(a.currentNamespace)
-	if err != nil {
-		a.explorerList.AddItem(fmt.Sprintf("Error loading services: %v", err), "", 0, nil)
-	} else {
-		if len(services) == 0 && a.currentResourceType == "services" {
-			a.explorerList.AddItem("No services found in this namespace", "", 0, nil)
-		} else {
-			for _, svc := range services {
-				a.explorerList.AddItem(fmt.Sprintf("%s: %s", svc.Type, svc.Name), svc.Name, 0, nil)
-			}
-		}
-	}
+	a.loadResourcesByType("services")
 }
 
 func (a *App) Run() error {
@@ -238,7 +243,7 @@ func (a *App) handleResourceSelection(mainText string, resourceName string) {
 
 	// Fetch resource details
 	go func() {
-		yamlContent, err := a.kubeClient.GetResourceDetails(resourceType, resourceName, a.currentNamespace)
+		yamlContent, err := a.getResourceDetails(resourceType, resourceName, a.currentNamespace)
 		if err != nil {
 			yamlContent = fmt.Sprintf("Error fetching resource details: %v", err)
 		}
@@ -250,4 +255,126 @@ func (a *App) handleResourceSelection(mainText string, resourceName string) {
 			a.pages.SwitchToPage("resource-details")
 		})
 	}()
+}
+
+// Helper methods using UnifiedClient GVR interface
+
+func (a *App) getNamespaces() ([]string, error) {
+	ctx := context.Background()
+	nsGVR := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "namespaces"}
+	
+	var nsList v1.NamespaceList
+	err := a.kubeClient.List(ctx, nsGVR, "", &nsList)
+	if err != nil {
+		return nil, err
+	}
+	
+	var namespaces []string
+	for _, ns := range nsList.Items {
+		namespaces = append(namespaces, ns.Name)
+	}
+	
+	return namespaces, nil
+}
+
+func (a *App) getResourcesInNamespace(resourceType, namespace string) ([]Resource, error) {
+	ctx := context.Background()
+	
+	var gvr schema.GroupVersionResource
+	switch strings.ToLower(resourceType) {
+	case "pod", "pods":
+		gvr = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
+	case "service", "services":
+		gvr = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "services"}
+	case "deployment", "deployments":
+		gvr = schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
+	case "configmap", "configmaps":
+		gvr = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}
+	case "secret", "secrets":
+		gvr = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}
+	default:
+		return nil, fmt.Errorf("unsupported resource type: %s", resourceType)
+	}
+	
+	var list unstructured.UnstructuredList
+	err := a.kubeClient.List(ctx, gvr, namespace, &list)
+	if err != nil {
+		return nil, err
+	}
+	
+	var resources []Resource
+	for _, item := range list.Items {
+		name := item.GetName()
+		status := "Unknown"
+		
+		// Extract status based on resource type
+		switch strings.ToLower(resourceType) {
+		case "pod", "pods":
+			if phase, found, _ := unstructured.NestedString(item.Object, "status", "phase"); found {
+				status = phase
+			}
+		case "service", "services":
+			if svcType, found, _ := unstructured.NestedString(item.Object, "spec", "type"); found {
+				status = svcType
+			}
+		case "deployment", "deployments":
+			if replicas, found, _ := unstructured.NestedInt64(item.Object, "status", "replicas"); found {
+				if readyReplicas, readyFound, _ := unstructured.NestedInt64(item.Object, "status", "readyReplicas"); readyFound {
+					status = fmt.Sprintf("%d/%d", readyReplicas, replicas)
+				} else {
+					status = fmt.Sprintf("0/%d", replicas)
+				}
+			}
+		}
+		
+		resources = append(resources, Resource{
+			Type:   item.GetKind(),
+			Name:   name,
+			Status: status,
+		})
+	}
+	
+	return resources, nil
+}
+
+func (a *App) getPodsInNamespace(namespace string) ([]Resource, error) {
+	return a.getResourcesInNamespace("pods", namespace)
+}
+
+func (a *App) getServicesInNamespace(namespace string) ([]Resource, error) {
+	return a.getResourcesInNamespace("services", namespace)
+}
+
+func (a *App) getResourceDetails(resourceType, resourceName, namespace string) (string, error) {
+	ctx := context.Background()
+	
+	var gvr schema.GroupVersionResource
+	switch strings.ToLower(resourceType) {
+	case "pod":
+		gvr = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
+	case "service":
+		gvr = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "services"}
+	case "deployment":
+		gvr = schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
+	case "configmap":
+		gvr = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}
+	case "secret":
+		gvr = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}
+	default:
+		return "", fmt.Errorf("unsupported resource type: %s", resourceType)
+	}
+	
+	var obj unstructured.Unstructured
+	err := a.kubeClient.Get(ctx, gvr, namespace, resourceName, &obj)
+	if err != nil {
+		return "", err
+	}
+	
+	// Convert to YAML for display
+	yamlBytes, err := yaml.Marshal(obj.Object)
+	if err != nil {
+		return "", err
+	}
+	
+	return string(yamlBytes), nil
 }

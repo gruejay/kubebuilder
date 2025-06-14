@@ -57,6 +57,16 @@ func (v *Views) CreateExplorerView(namespace string, resourceType string) *tview
 		SetBorderColor(tcell.ColorLightBlue).
 		SetTitleColor(tcell.ColorWhite)
 
+	list.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Rune() {
+		case 'j':
+			return tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone)
+		case 'k':
+			return tcell.NewEventKey(tcell.KeyBacktab, 0, tcell.ModNone)
+		}
+		return event
+	})
+
 	title := fmt.Sprintf(" Explorer Mode - Namespace: %s | Resource: %s (Press 'n'/'r' to change) ", namespace, resourceType)
 	list.SetTitle(title)
 	return list

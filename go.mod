@@ -6,6 +6,7 @@ require (
 	github.com/gdamore/tcell/v2 v2.7.1
 	github.com/rivo/tview v0.0.0-20250501113434-0c592cd31026
 	github.com/sahilm/fuzzy v0.1.1
+	k8s.io/apiextensions-apiserver v0.33.1
 	k8s.io/apimachinery v0.33.1
 	k8s.io/client-go v0.33.1
 	sigs.k8s.io/yaml v1.4.0
@@ -26,7 +27,6 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-runewidth v0.0.15 // indirect
