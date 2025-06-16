@@ -1,7 +1,8 @@
-# kubeguide
+# kubeguidn
 
-Enhanced "K8s Mentor" with Manifest Editor:
+Enhanced "K8s Mentor" with Manifest Editor
 
+## Plan
 Core Modes:
 
     Explorer Mode: Browse cluster resources + AI explanations
@@ -38,4 +39,6 @@ Workflows:
     "Fix this issue": Failing resource → AI suggests manifest changes to fix it
     "Dry run first": Always preview what changes will do before applying
 
+## Implemented
 
+- Explorer mode for Pods and Services
