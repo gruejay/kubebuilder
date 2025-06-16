@@ -12,8 +12,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/yaml"
 
-	"kubeguide/pkg/kubernetes"
-	"kubeguide/pkg/ui"
+	"kubeguide/internal/kubernetes"
+	"kubeguide/internal/ui"
 )
 
 type Resource struct {
@@ -25,7 +25,9 @@ type Resource struct {
 type App struct {
 	app                 *tview.Application
 	kubeClient          *kubernetes.UnifiedClient
-	views               *ui.Views
+	explorer            *ui.Explorer
+	welcome             *ui.Welcome
+	resourceDetails     *ui.ResourceDetails
 	currentMode         string
 	currentNamespace    string
 	currentResourceType string
@@ -51,8 +53,10 @@ func New() *App {
 	tview.Styles.ContrastSecondaryTextColor = tcell.ColorLightGray
 
 	return &App{
-		app:                 app,
-		views:               ui.NewViews(app),
+		app:      app,
+		explorer: ui.NewExplorer(app),
+		welcome:  ui.NewWelcome("Welcome", ""),
+
 		currentMode:         "welcome",
 		currentResourceType: "all",
 		pages:               tview.NewPages(),
@@ -86,8 +90,8 @@ func (a *App) setupPages() {
 	a.pages.SetBackgroundColor(tcell.ColorBlack)
 
 	// Create pages
-	a.pages.AddPage("welcome", a.views.CreateWelcomeView(), true, true)
-	a.explorerList = a.views.CreateExplorerView(a.currentNamespace, a.currentResourceType)
+	a.pages.AddPage("welcome", a.welcome.CreateWelcomeView(), true, true)
+	a.explorerList = a.explorer.CreateExplorerView(a.currentNamespace, a.currentResourceType)
 	a.pages.AddPage("explorer", a.explorerList, true, false)
 
 	// Load initial resources if connected
@@ -152,17 +156,17 @@ func (a *App) showNamespaceSelector() {
 		return
 	}
 
-	a.views.CreateNamespaceSelector(a.namespaces, a.pages, func(selectedNs string) {
+	a.explorer.CreateNamespaceSelector(a.namespaces, a.pages, func(selectedNs string) {
 		a.currentNamespace = selectedNs
-		a.views.UpdateExplorerTitle(a.explorerList, a.currentNamespace, a.currentResourceType)
+		a.explorer.UpdateExplorerTitle(a.explorerList, a.currentNamespace, a.currentResourceType)
 		go a.loadResources()
 	})
 }
 
 func (a *App) showResourceSelector() {
-	a.views.CreateResourceSelector(a.pages, func(selectedResourceType string) {
+	a.explorer.CreateResourceSelector(a.pages, func(selectedResourceType string) {
 		a.currentResourceType = selectedResourceType
-		a.views.UpdateExplorerTitle(a.explorerList, a.currentNamespace, a.currentResourceType)
+		a.explorer.UpdateExplorerTitle(a.explorerList, a.currentNamespace, a.currentResourceType)
 		go a.loadResources()
 	})
 }
@@ -250,7 +254,8 @@ func (a *App) handleResourceSelection(mainText string, resourceName string) {
 
 		// Create and show the details view
 		a.app.QueueUpdateDraw(func() {
-			detailsView := a.views.CreateResourceDetailsView(resourceName, resourceType, yamlContent)
+			rd := ui.NewResourceDetails(resourceName, resourceType, yamlContent)
+			detailsView := rd.CreateView()
 			a.pages.AddPage("resource-details", detailsView, true, true)
 			a.pages.SwitchToPage("resource-details")
 		})
@@ -262,24 +267,24 @@ func (a *App) handleResourceSelection(mainText string, resourceName string) {
 func (a *App) getNamespaces() ([]string, error) {
 	ctx := context.Background()
 	nsGVR := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "namespaces"}
-	
+
 	var nsList v1.NamespaceList
 	err := a.kubeClient.List(ctx, nsGVR, "", &nsList)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var namespaces []string
 	for _, ns := range nsList.Items {
 		namespaces = append(namespaces, ns.Name)
 	}
-	
+
 	return namespaces, nil
 }
 
 func (a *App) getResourcesInNamespace(resourceType, namespace string) ([]Resource, error) {
 	ctx := context.Background()
-	
+
 	var gvr schema.GroupVersionResource
 	switch strings.ToLower(resourceType) {
 	case "pod", "pods":
@@ -295,18 +300,18 @@ func (a *App) getResourcesInNamespace(resourceType, namespace string) ([]Resourc
 	default:
 		return nil, fmt.Errorf("unsupported resource type: %s", resourceType)
 	}
-	
+
 	var list unstructured.UnstructuredList
 	err := a.kubeClient.List(ctx, gvr, namespace, &list)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var resources []Resource
 	for _, item := range list.Items {
 		name := item.GetName()
 		status := "Unknown"
-		
+
 		// Extract status based on resource type
 		switch strings.ToLower(resourceType) {
 		case "pod", "pods":
@@ -326,14 +331,14 @@ func (a *App) getResourcesInNamespace(resourceType, namespace string) ([]Resourc
 				}
 			}
 		}
-		
+
 		resources = append(resources, Resource{
 			Type:   item.GetKind(),
 			Name:   name,
 			Status: status,
 		})
 	}
-	
+
 	return resources, nil
 }
 
@@ -347,7 +352,7 @@ func (a *App) getServicesInNamespace(namespace string) ([]Resource, error) {
 
 func (a *App) getResourceDetails(resourceType, resourceName, namespace string) (string, error) {
 	ctx := context.Background()
-	
+
 	var gvr schema.GroupVersionResource
 	switch strings.ToLower(resourceType) {
 	case "pod":
@@ -363,18 +368,19 @@ func (a *App) getResourceDetails(resourceType, resourceName, namespace string) (
 	default:
 		return "", fmt.Errorf("unsupported resource type: %s", resourceType)
 	}
-	
+
 	var obj unstructured.Unstructured
 	err := a.kubeClient.Get(ctx, gvr, namespace, resourceName, &obj)
 	if err != nil {
 		return "", err
 	}
-	
+
 	// Convert to YAML for display
+	obj = kubernetes.CleanData(obj)
 	yamlBytes, err := yaml.Marshal(obj.Object)
 	if err != nil {
 		return "", err
 	}
-	
+
 	return string(yamlBytes), nil
 }

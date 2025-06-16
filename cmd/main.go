@@ -3,12 +3,12 @@ package main
 import (
 	"fmt"
 
-	"kubeguide/pkg/app"
+	"kubeguide/internal/app"
 )
 
 func main() {
 	kubeguideApp := app.New()
-	
+
 	if err := kubeguideApp.Initialize(); err != nil {
 		fmt.Printf("Error initializing application: %v\n", err)
 		return
