@@ -384,6 +384,13 @@ func (c *UnifiedClient) listTypedResource(ctx context.Context, gvr schema.GroupV
 		}
 		reflect.ValueOf(obj).Elem().Set(reflect.ValueOf(*deployments))
 
+	case schema.GroupVersionResource{Group: "", Version: "v1", Resource: "namespaces"}:
+		namespaces, err := c.typedClient.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return err
+		}
+		reflect.ValueOf(obj).Elem().Set(reflect.ValueOf(*namespaces))
+
 	default:
 		return fmt.Errorf("unsupported core resource: %v", gvr)
 	}
@@ -524,7 +531,7 @@ func (c *UnifiedClient) getResourceInterface(gvr schema.GroupVersionResource, na
 // 	}
 //
 // 	// Work with core resources normally
-// 	podGVR := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
+// 	podGVR := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "namespaces"}
 // 	var podList unstructured.UnstructuredList
 // 	err = client.List(ctx, podGVR, "default", &podList)
 // 	if err != nil {
