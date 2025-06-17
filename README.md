@@ -2,6 +2,18 @@
 
 Enhanced "K8s Mentor" with Manifest Editor
 
+## Usage
+
+`make run` or `go run cmd/main.go` to run
+`make build` or `go build -o kubebuild cmd/main.go` to build
+
+Once launched, use `?` for help.
+
+Navigation is similar to Vim.
+j/k or Tab/shift-tab will move forward/backward in lists.
+
+In fuzzy search, use `ctrl-j/k` or tab/shift-tab to change selection.
+
 ## Plan
 Core Modes:
 
