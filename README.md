@@ -4,6 +4,9 @@ Enhanced "K8s Mentor" with Manifest Editor
 
 ## Usage
 
+Uses whatever context is selected in your kubeconfig. There is currently no support
+for changing contexts inside kubeguide.
+
 `make run` or `go run cmd/main.go` to run
 `make build` or `go build -o kubebuild cmd/main.go` to build
 
