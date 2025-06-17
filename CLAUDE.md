@@ -6,28 +6,51 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 kubeguide is a Kubernetes management TUI (terminal user interface) with AI assistance that provides three core modes:
 
-- **Explorer Mode**: Browse cluster resources with AI explanations
-- **Editor Mode**: Create/edit Kubernetes manifests with AI assistance
-- **Apply Mode**: Preview changes, validate, and apply to cluster
+- **Explorer Mode**: Browse cluster resources with AI explanations (currently implemented)
+- **Editor Mode**: Create/edit Kubernetes manifests with AI assistance (planned)
+- **Apply Mode**: Preview changes, validate, and apply to cluster (planned)
 
-## Key Features
+## Development Commands
 
-The tool focuses on AI-assisted Kubernetes manifest editing with:
-- Real-time syntax checking and cluster API validation
-- Smart suggestions for resource limits, labels, and best practices
-- Template library for common patterns (web apps, databases, jobs)
-- Dry-run capabilities for safe change preview
+```bash
+# Build the application
+make build          # Creates bin/kubeguide
+
+# Run directly during development
+make run           # Equivalent to: go run ./cmd/main.go
+
+# Run the built binary
+./bin/kubeguide
+```
 
 ## Architecture
 
-kubeguide is a TUI (terminal user interface) written in Go using tview. The inspiration is k9s, a popular
-TUI for kubernetes/kubectl. 
+kubeguide is a TUI application written in Go using the tview framework, inspired by k9s. The application uses Go 1.24.3 and has a modular architecture centered around three core packages:
 
-The application operates in three distinct modes that handle different aspects of Kubernetes management:
-1. Resource browsing and exploration with AI explanations
-2. Manifest creation and editing with live validation
-3. Change preview and cluster application
+### Key Packages
 
-## Development Notes
+- **`internal/app`**: Main application state management and mode orchestration
+- **`internal/kubernetes`**: Unified Kubernetes client that handles both core resources and Custom Resource Definitions (CRDs) with resource discovery caching
+- **`internal/ui`**: Modular UI components including fuzzy selectors, resource browsers, and detail viewers
 
-This is a Kubernetes-focused tool that integrates AI assistance throughout the workflow. When working on this codebase, consider the three-mode architecture and the emphasis on safe, validated operations before applying changes to clusters.
+### Architecture Patterns
+
+1. **Unified Kubernetes Client** (`internal/kubernetes/client.go`): Abstracts both typed and dynamic client operations, supports namespaced and cluster-scoped resources
+2. **Component-Based UI**: Reusable UI components with consistent tview styling (VSCode dark theme)
+3. **Event-Driven Navigation**: Global key bindings with mode-specific input handling
+
+## Current Implementation Status
+
+**✅ Implemented**: Explorer mode with resource browsing, YAML details, namespace switching, vi-style navigation (j/k keys)
+
+**🚧 In Development**: Key binding system structure exists but incomplete
+
+**❌ Planned**: Editor mode, Apply mode, AI assistance features, testing framework
+
+## Development Setup
+
+- **Go Version**: 1.24.3+ required
+- **Kubernetes Access**: Requires access to a Kubernetes cluster (uses standard kubeconfig resolution)
+- **Dependencies**: Uses client-go v0.33.1, tview for UI, fuzzy search library
+
+The codebase emphasizes safe, validated operations before applying changes to clusters and follows a three-mode architecture that can be extended as new modes are implemented.

@@ -13,6 +13,8 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"kubeguide/internal/kubernetes"
+	"kubeguide/internal/modes"
+	"kubeguide/internal/navigation"
 	"kubeguide/internal/ui"
 )
 
@@ -28,12 +30,13 @@ type App struct {
 	explorer            *ui.Explorer
 	welcome             *ui.Welcome
 	resourceDetails     *ui.ResourceDetails
-	currentMode         string
+	currentMode         modes.Mode
 	currentNamespace    string
 	currentResourceType string
 	pages               *tview.Pages
 	namespaces          []string
 	explorerList        *tview.List
+	keyBindings         *navigation.KeyBindings
 }
 
 func New() *App {
@@ -53,13 +56,13 @@ func New() *App {
 	tview.Styles.ContrastSecondaryTextColor = tcell.ColorLightGray
 
 	return &App{
-		app:      app,
-		explorer: ui.NewExplorer(app),
-		welcome:  ui.NewWelcome("Welcome", ""),
-
-		currentMode:         "welcome",
+		app:                 app,
+		explorer:            ui.NewExplorer(app),
+		welcome:             ui.NewWelcome("Welcome", ""),
+		currentMode:         modes.Welcome,
 		currentResourceType: "all",
 		pages:               tview.NewPages(),
+		keyBindings:         navigation.GetDefaultKeyBindings(),
 	}
 }
 
@@ -113,6 +116,15 @@ func (a *App) setupKeyBindings() {
 			return event // Let inputs handle their own input
 		}
 
+		// Check if help page is open first - if so, only handle help-related keys
+		if a.pages.HasPage("help") {
+			if event.Key() == tcell.KeyEsc || event.Rune() == 'q' {
+				a.pages.RemovePage("help")
+			}
+			// Consume all other events when help is open
+			return nil
+		}
+
 		if event.Key() == tcell.KeyEsc {
 			// Check if we're viewing resource details
 			if a.pages.HasPage("resource-details") {
@@ -121,8 +133,8 @@ func (a *App) setupKeyBindings() {
 				return nil
 			}
 			// Otherwise, return to welcome screen
-			if a.currentMode != "welcome" {
-				a.currentMode = "welcome"
+			if a.currentMode != modes.Welcome {
+				a.currentMode = modes.Welcome
 				a.pages.SwitchToPage("welcome")
 			}
 		}
@@ -131,20 +143,23 @@ func (a *App) setupKeyBindings() {
 			a.app.Stop()
 			return nil
 		case 'e':
-			if a.currentMode == "welcome" {
-				a.currentMode = "explorer"
+			if a.currentMode == modes.Welcome {
+				a.currentMode = modes.Explorer
 				a.pages.SwitchToPage("explorer")
 			}
 			return nil
 		case 'n':
-			if a.currentMode == "explorer" {
+			if a.currentMode == modes.Explorer {
 				a.showNamespaceSelector()
 			}
 			return nil
 		case 'r':
-			if a.currentMode == "explorer" {
+			if a.currentMode == modes.Explorer {
 				a.showResourceSelector()
 			}
+			return nil
+		case '?':
+			a.showHelpView()
 			return nil
 		}
 		return event
@@ -383,4 +398,56 @@ func (a *App) getResourceDetails(resourceType, resourceName, namespace string) (
 	}
 
 	return string(yamlBytes), nil
+}
+
+func (a *App) showHelpView() {
+	// Get key bindings for current mode
+	bindings := a.keyBindings.GetBindings(a.currentMode)
+
+	// Build help text from bindings
+	helpText := fmt.Sprintf("Key Bindings - %s Mode:\n\n", a.currentMode)
+
+	for _, binding := range bindings {
+		var keyStr string
+		if binding.Key != tcell.KeyNUL {
+			switch binding.Key {
+			case tcell.KeyEsc:
+				keyStr = "Esc"
+			case tcell.KeyEnter:
+				keyStr = "Enter"
+			default:
+				keyStr = fmt.Sprintf("Key:%d", binding.Key)
+			}
+		} else if binding.Rune != 0 {
+			keyStr = string(binding.Rune)
+		}
+
+		if keyStr != "" {
+			helpText += fmt.Sprintf("  %-8s - %s\n", keyStr, binding.Description)
+		}
+	}
+
+	textView := tview.NewTextView().
+		SetText(helpText).
+		SetDynamicColors(true).
+		SetWrap(false)
+
+	textView.SetBackgroundColor(tcell.ColorBlack)
+	textView.SetTextColor(tcell.ColorWhite)
+	textView.SetBorder(true).SetTitle(" Help - Press 'esc' or 'q' to close ")
+
+	// Input capture is handled by the main app, so no need to set it here
+
+	// Create a flex layout to position the help view in bottom right
+	flex := tview.NewFlex().
+		AddItem(nil, 0, 1, false).
+		AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
+			AddItem(nil, 0, 1, false).
+			AddItem(textView, 10, 1, true).
+			AddItem(nil, 0, 1, false), 40, 1, true).
+		AddItem(nil, 0, 1, false)
+
+	flex.SetBackgroundColor(tcell.ColorBlack)
+
+	a.pages.AddPage("help", flex, true, true)
 }

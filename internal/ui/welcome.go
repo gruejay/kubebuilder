@@ -14,7 +14,7 @@ type Welcome struct {
 
 func NewWelcome(title string, message string) *Welcome {
 	if message == "" {
-		message = "Welcome to kubebuide!\n\nPress e to explore\n\nPress q to quit\n\nPress esc to go back"
+		message = "Welcome to kubebuide!\n\nPress e to explore\n\nPress q to quit\n\nPress esc to go back\n\nPress ? for help"
 	}
 	w := Welcome{
 		title:   title,
