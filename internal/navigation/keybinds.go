@@ -80,6 +80,7 @@ func GetDefaultKeyBindings() *KeyBindings {
 		{Key: tcell.KeyEnter, Description: "View resource details", Mode: modes.Explorer},
 		{Rune: 'j', Description: "Move down", Mode: modes.Explorer},
 		{Rune: 'k', Description: "Move up", Mode: modes.Explorer},
+		{Rune: 'a', Description: "AI analysis (failed pods)", Mode: modes.Explorer},
 	}
 	
 	// Add all bindings

@@ -1,0 +1,30 @@
+# Example configuration for kubeguide
+# Copy this to ~/.config/kubeguide/config.yaml and customize
+
+ai:
+  # AI provider: "openai", "anthropic", "ollama", etc.
+  provider: "openai"
+  
+  # Base URL for the AI API
+  # OpenAI: https://api.openai.com/v1
+  # Anthropic: https://api.anthropic.com
+  # Ollama (local): http://localhost:11434/v1
+  base_url: "https://api.openai.com/v1"
+  
+  # Model to use for analysis
+  # OpenAI: gpt-4o-mini, gpt-4o, gpt-3.5-turbo
+  # Anthropic: claude-3-haiku-20240307, claude-3-sonnet-20240229
+  # Ollama: llama2, codellama, etc.
+  model: "gpt-4o-mini"
+  
+  # API key (optional here - can use environment variables instead)
+  # For security, it's recommended to use environment variables:
+  # export KUBEGUIDE_AI_API_KEY="your-api-key"
+  # export OPENAI_API_KEY="your-openai-key"  # fallback for OpenAI
+  # api_key: ""
+
+# Environment variables that can be used:
+# KUBEGUIDE_AI_API_KEY - API key for the configured provider
+# KUBEGUIDE_AI_BASE_URL - Override base URL
+# KUBEGUIDE_AI_MODEL - Override model
+# OPENAI_API_KEY - Fallback for OpenAI (used if KUBEGUIDE_AI_API_KEY is not set)

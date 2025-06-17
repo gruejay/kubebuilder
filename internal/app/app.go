@@ -12,6 +12,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/yaml"
 
+	"kubeguide/internal/ai"
+	"kubeguide/internal/config"
 	"kubeguide/internal/kubernetes"
 	"kubeguide/internal/modes"
 	"kubeguide/internal/navigation"
@@ -27,6 +29,8 @@ type Resource struct {
 type App struct {
 	app                 *tview.Application
 	kubeClient          *kubernetes.UnifiedClient
+	aiClient            *ai.Client
+	config              *config.Config
 	explorer            *ui.Explorer
 	welcome             *ui.Welcome
 	resourceDetails     *ui.ResourceDetails
@@ -55,8 +59,23 @@ func New() *App {
 	tview.Styles.InverseTextColor = tcell.ColorBlack
 	tview.Styles.ContrastSecondaryTextColor = tcell.ColorLightGray
 
+	// Load configuration
+	cfg, err := config.Load()
+	if err != nil {
+		// Continue without AI if config loading fails
+		fmt.Printf("Warning: Failed to load config: %v\n", err)
+		cfg = nil
+	}
+
+	var aiClient *ai.Client
+	if cfg != nil {
+		aiClient = ai.NewClient(&cfg.AI)
+	}
+
 	return &App{
 		app:                 app,
+		config:              cfg,
+		aiClient:            aiClient,
 		explorer:            ui.NewExplorer(app),
 		welcome:             ui.NewWelcome("Welcome", ""),
 		currentMode:         modes.Welcome,
@@ -156,6 +175,11 @@ func (a *App) setupKeyBindings() {
 		case 'r':
 			if a.currentMode == modes.Explorer {
 				a.showResourceSelector()
+			}
+			return nil
+		case 'a':
+			if a.currentMode == modes.Explorer {
+				a.performAIAnalysis()
 			}
 			return nil
 		case '?':
@@ -443,11 +467,195 @@ func (a *App) showHelpView() {
 		AddItem(nil, 0, 1, false).
 		AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
 			AddItem(nil, 0, 1, false).
-			AddItem(textView, 10, 1, true).
+			AddItem(textView, 20, 1, true).
 			AddItem(nil, 0, 1, false), 40, 1, true).
 		AddItem(nil, 0, 1, false)
 
 	flex.SetBackgroundColor(tcell.ColorBlack)
 
 	a.pages.AddPage("help", flex, true, true)
+}
+
+func (a *App) performAIAnalysis() {
+	if a.aiClient == nil {
+		a.showErrorModal("AI not configured", "AI analysis is not available. Please configure AI settings in ~/.config/kubeguide/config.yaml or set environment variables.")
+		return
+	}
+
+	// Get currently selected resource
+	currentItem := a.explorerList.GetCurrentItem()
+	if currentItem < 0 {
+		a.showErrorModal("No selection", "Please select a resource to analyze.")
+		return
+	}
+
+	mainText, resourceName := a.explorerList.GetItemText(currentItem)
+	if resourceName == "" {
+		a.showErrorModal("Invalid selection", "Please select a valid resource.")
+		return
+	}
+
+	// Parse resource type from mainText (format: "ResourceType: ResourceName (Status)")
+	parts := strings.Split(mainText, ":")
+	if len(parts) < 2 {
+		a.showErrorModal("Invalid resource", "Unable to determine resource type.")
+		return
+	}
+	resourceType := strings.TrimSpace(parts[0])
+
+	// Only analyze pods for now
+	if strings.ToLower(resourceType) != "pod" {
+		a.showErrorModal("Unsupported resource", "AI analysis is currently only supported for pods.")
+		return
+	}
+
+	// Check if pod is in a failed state
+	if !strings.Contains(strings.ToLower(mainText), "failed") &&
+		!strings.Contains(strings.ToLower(mainText), "error") &&
+		!strings.Contains(strings.ToLower(mainText), "crashloopbackoff") &&
+		!strings.Contains(strings.ToLower(mainText), "imagepullbackoff") {
+		a.showInfoModal("Pod status", "AI analysis is most useful for failed or problematic pods. This pod appears to be running normally.")
+		return
+	}
+
+	// Show loading modal
+	a.showLoadingModal("Analyzing pod with AI...")
+
+	// Get pod YAML in background
+	go func() {
+		ctx := context.Background()
+		yamlContent, err := a.getResourceDetails(resourceType, resourceName, a.currentNamespace)
+		if err != nil {
+			a.app.QueueUpdateDraw(func() {
+				a.pages.RemovePage("loading")
+				a.showErrorModal("Failed to get pod details", fmt.Sprintf("Error: %v", err))
+			})
+			return
+		}
+
+		// Analyze with AI
+		analysis, err := a.aiClient.AnalyzePod(ctx, yamlContent)
+		if err != nil {
+			a.app.QueueUpdateDraw(func() {
+				a.pages.RemovePage("loading")
+				a.showErrorModal("AI analysis failed", fmt.Sprintf("Error: %v", err))
+			})
+			return
+		}
+
+		// Show results
+		a.app.QueueUpdateDraw(func() {
+			a.pages.RemovePage("loading")
+			a.showAIAnalysisResults(resourceName, analysis)
+		})
+	}()
+}
+
+func (a *App) showErrorModal(title, message string) {
+	modal := tview.NewModal().
+		SetText(message).
+		AddButtons([]string{"OK"}).
+		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+			a.pages.RemovePage("error-modal")
+		})
+	modal.SetBackgroundColor(tcell.ColorBlack)
+	modal.SetTextColor(tcell.ColorRed)
+	modal.SetTitle(title)
+	a.pages.AddPage("error-modal", modal, false, true)
+}
+
+func (a *App) showInfoModal(title, message string) {
+	modal := tview.NewModal().
+		SetText(message).
+		AddButtons([]string{"OK", "Continue Anyway"}).
+		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+			a.pages.RemovePage("info-modal")
+			if buttonLabel == "Continue Anyway" {
+				// Force analysis even for healthy pods
+				a.performAIAnalysisForce()
+			}
+		})
+	modal.SetBackgroundColor(tcell.ColorBlack)
+	modal.SetTextColor(tcell.ColorYellow)
+	modal.SetTitle(title)
+	a.pages.AddPage("info-modal", modal, false, true)
+}
+
+func (a *App) showLoadingModal(message string) {
+	modal := tview.NewModal().
+		SetText(message).
+		SetBackgroundColor(tcell.ColorBlack).
+		SetTextColor(tcell.ColorWhite)
+	a.pages.AddPage("loading", modal, false, true)
+}
+
+func (a *App) showAIAnalysisResults(resourceName, analysis string) {
+	textView := tview.NewTextView().
+		SetText(analysis).
+		SetTextAlign(tview.AlignLeft).
+		SetDynamicColors(true).
+		SetWrap(true).
+		SetScrollable(true)
+
+	textView.SetBackgroundColor(tcell.ColorBlack)
+	textView.SetTextColor(tcell.ColorWhite)
+	textView.SetBorder(true).SetTitle(fmt.Sprintf(" AI Analysis: %s - Press 'esc' to close ", resourceName))
+
+	// Allow closing with Esc
+	textView.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyEsc {
+			a.pages.RemovePage("ai-analysis")
+			return nil
+		}
+		return event
+	})
+
+	a.pages.AddPage("ai-analysis", textView, true, true)
+}
+
+func (a *App) performAIAnalysisForce() {
+	// This is a simplified version that skips the health check
+	currentItem := a.explorerList.GetCurrentItem()
+	if currentItem < 0 {
+		return
+	}
+
+	mainText, resourceName := a.explorerList.GetItemText(currentItem)
+	parts := strings.Split(mainText, ":")
+	if len(parts) < 2 {
+		return
+	}
+	resourceType := strings.TrimSpace(parts[0])
+
+	if strings.ToLower(resourceType) != "pod" {
+		return
+	}
+
+	a.showLoadingModal("Analyzing pod with AI...")
+
+	go func() {
+		ctx := context.Background()
+		yamlContent, err := a.getResourceDetails(resourceType, resourceName, a.currentNamespace)
+		if err != nil {
+			a.app.QueueUpdateDraw(func() {
+				a.pages.RemovePage("loading")
+				a.showErrorModal("Failed to get pod details", fmt.Sprintf("Error: %v", err))
+			})
+			return
+		}
+
+		analysis, err := a.aiClient.AnalyzePod(ctx, yamlContent)
+		if err != nil {
+			a.app.QueueUpdateDraw(func() {
+				a.pages.RemovePage("loading")
+				a.showErrorModal("AI analysis failed", fmt.Sprintf("Error: %v", err))
+			})
+			return
+		}
+
+		a.app.QueueUpdateDraw(func() {
+			a.pages.RemovePage("loading")
+			a.showAIAnalysisResults(resourceName, analysis)
+		})
+	}()
 }
